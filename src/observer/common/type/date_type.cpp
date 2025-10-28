@@ -75,6 +75,7 @@ bool DateType::is_valid_date(int year, int month, int day)
 
 RC DateType::string_to_date(const string &date_str, int &date_int)
 {
+<<<<<<< HEAD
   // 支持格式: "YYYY-MM-DD" 或 "YYYY-M-D" 等灵活格式
   if (date_str.length() < 8 || date_str.length() > 10) {
     LOG_WARN("invalid date format: %s, expected YYYY-MM-DD or YYYY-M-D", date_str.c_str());
@@ -90,15 +91,30 @@ RC DateType::string_to_date(const string &date_str, int &date_int)
 
   size_t second_dash = date_str.find('-', first_dash + 1);
   if (second_dash == string::npos) {
+=======
+  // 期望格式: "YYYY-MM-DD"
+  if (date_str.length() != 10) {
+    LOG_WARN("invalid date format: %s, expected YYYY-MM-DD", date_str.c_str());
+    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  }
+
+  if (date_str[4] != '-' || date_str[7] != '-') {
+>>>>>>> 5e5ce29959f5f579fe5a09d30ba9bc8536cd774d
     LOG_WARN("invalid date format: %s, expected YYYY-MM-DD", date_str.c_str());
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;
   }
 
   int year, month, day;
   try {
+<<<<<<< HEAD
     year  = std::stoi(date_str.substr(0, first_dash));
     month = std::stoi(date_str.substr(first_dash + 1, second_dash - first_dash - 1));
     day   = std::stoi(date_str.substr(second_dash + 1));
+=======
+    year  = std::stoi(date_str.substr(0, 4));
+    month = std::stoi(date_str.substr(5, 2));
+    day   = std::stoi(date_str.substr(8, 2));
+>>>>>>> 5e5ce29959f5f579fe5a09d30ba9bc8536cd774d
   } catch (const std::exception &e) {
     LOG_WARN("failed to parse date: %s, error: %s", date_str.c_str(), e.what());
     return RC::SCHEMA_FIELD_TYPE_MISMATCH;

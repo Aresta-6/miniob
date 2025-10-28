@@ -1,0 +1,14 @@
+### 2025-10-29 00:38:29.259
+drop table date_table;
+### 2025-10-29 00:38:29.260
+create table date_table(id int, d date);
+### 2025-10-29 00:38:29.266
+insert into date_table values(1, '2020-1-01');
+### 2025-10-29 00:38:29.268
+insert into date_table values(2, '2020-01-1');
+### 2025-10-29 00:38:29.268
+insert into date_table values(3, '2020-1-1');
+### 2025-10-29 00:38:29.269
+insert into date_table values(4, '2020-10-28');
+### 2025-10-29 00:38:29.269
+select * from date_table;
