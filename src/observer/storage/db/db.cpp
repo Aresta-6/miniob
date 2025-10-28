@@ -185,8 +185,13 @@ RC Db::drop_table(const char *table_name)
     return RC::SCHEMA_TABLE_NOT_EXIST;
   }
 
-  // 获取表的元数据，用于删除索引文件
+  // 先收集所有索引名称，避免在删除 table 对象后访问 table_meta
   const TableMeta &table_meta = table->table_meta();
+  vector<string> index_names;
+  for (int i = 0; i < table_meta.index_num(); i++) {
+    const IndexMeta *index_meta = table_meta.index(i);
+    index_names.push_back(index_meta->name());
+  }
   
   // 从 opened_tables_ 中移除表
   opened_tables_.erase(table_name);
@@ -212,9 +217,8 @@ RC Db::drop_table(const char *table_name)
   }
 
   // 删除所有索引文件
-  for (int i = 0; i < table_meta.index_num(); i++) {
-    const IndexMeta *index_meta = table_meta.index(i);
-    string index_file = table_index_file(path_.c_str(), table_name, index_meta->name());
+  for (const string &index_name : index_names) {
+    string index_file = table_index_file(path_.c_str(), table_name, index_name.c_str());
     if (filesystem::exists(index_file)) {
       if (!filesystem::remove(index_file)) {
         LOG_WARN("Failed to remove index file: %s", index_file.c_str());
