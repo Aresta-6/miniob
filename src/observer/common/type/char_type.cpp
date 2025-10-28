@@ -31,12 +31,9 @@ RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
 {
   switch (type) {
     case AttrType::DATES: {
-      // 将字符串转换为 DATE
-      string date_str = val.get_string();
       int date_int;
-      RC rc = DateType::string_to_date(date_str, date_int);
+      RC rc = DateType::string_to_date(val.value_.pointer_value_, date_int);
       if (rc != RC::SUCCESS) {
-        LOG_WARN("failed to convert string to date: %s", date_str.c_str());
         return rc;
       }
       result.set_type(AttrType::DATES);
@@ -54,7 +51,7 @@ int CharType::cast_cost(AttrType type)
     return 0;
   }
   if (type == AttrType::DATES) {
-    return 1;  // 可以转换，但有一定成本
+    return 1;  // 字符串可以转换为日期，成本为1
   }
   return INT32_MAX;
 }
