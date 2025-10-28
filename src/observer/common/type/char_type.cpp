@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/comparator.h"
 #include "common/log/log.h"
 #include "common/type/char_type.h"
+#include "common/type/date_type.h"
 #include "common/value.h"
 
 int CharType::compare(const Value &left, const Value &right) const
@@ -29,6 +30,19 @@ RC CharType::set_value_from_str(Value &val, const string &data) const
 RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
 {
   switch (type) {
+    case AttrType::DATES: {
+      // 将字符串转换为 DATE
+      string date_str = val.get_string();
+      int date_int;
+      RC rc = DateType::string_to_date(date_str, date_int);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to convert string to date: %s", date_str.c_str());
+        return rc;
+      }
+      result.set_type(AttrType::DATES);
+      result.set_int(date_int);
+      return RC::SUCCESS;
+    }
     default: return RC::UNIMPLEMENTED;
   }
   return RC::SUCCESS;
@@ -38,6 +52,9 @@ int CharType::cast_cost(AttrType type)
 {
   if (type == AttrType::CHARS) {
     return 0;
+  }
+  if (type == AttrType::DATES) {
+    return 1;  // 可以转换，但有一定成本
   }
   return INT32_MAX;
 }
