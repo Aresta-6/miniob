@@ -18,6 +18,64 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
+/**
+ * @brief LIKE模式匹配函数
+ * @param text 要匹配的文本
+ * @param pattern LIKE模式，支持 % 和 _ 通配符
+ * @return 是否匹配成功
+ * 
+ * % 匹配零个或多个任意字符（除单引号外）
+ * _ 匹配一个任意字符（除单引号外）
+ */
+static bool like_match(const char *text, const char *pattern)
+{
+  // 如果模式为空，检查文本是否也为空
+  if (*pattern == '\0') {
+    return *text == '\0';
+  }
+
+  // 处理 % 通配符
+  if (*pattern == '%') {
+    // 跳过连续的 %
+    while (*pattern == '%') {
+      pattern++;
+    }
+    // 如果 % 是最后一个字符，匹配成功
+    if (*pattern == '\0') {
+      return true;
+    }
+    // 尝试匹配从当前位置开始的所有可能
+    while (*text != '\0') {
+      // 单引号不能被 % 匹配
+      if (*text == '\'') {
+        text++;
+        continue;
+      }
+      if (like_match(text, pattern)) {
+        return true;
+      }
+      text++;
+    }
+    return like_match(text, pattern);
+  }
+
+  // 处理 _ 通配符
+  if (*pattern == '_') {
+    // _ 必须匹配一个字符，但不能是单引号
+    if (*text == '\0' || *text == '\'') {
+      return false;
+    }
+    return like_match(text + 1, pattern + 1);
+  }
+
+  // 处理普通字符
+  if (*text == *pattern) {
+    return like_match(text + 1, pattern + 1);
+  }
+
+  return false;
+}
+
 RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
 {
   return tuple.find_cell(TupleCellSpec(table_name(), field_name()), value);
@@ -143,6 +201,22 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
 {
   RC  rc         = RC::SUCCESS;
   int cmp_result = 0;
+  
+  // 特殊处理 LIKE 操作符
+  if (comp_ == LIKE_OP) {
+    // LIKE 操作符要求左边是字符串，右边是模式
+    if (left.attr_type() != AttrType::CHARS || right.attr_type() != AttrType::CHARS) {
+      LOG_WARN("LIKE operator requires both operands to be strings. left=%d, right=%d", 
+               left.attr_type(), right.attr_type());
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+    
+    // 先保存string对象，避免临时对象销毁导致指针悬空
+    string text_str = left.get_string();
+    string pattern_str = right.get_string();
+    result = like_match(text_str.c_str(), pattern_str.c_str());
+    return RC::SUCCESS;
+  }
   
   // 如果类型不同，尝试进行类型转换
   if (left.attr_type() != right.attr_type()) {
