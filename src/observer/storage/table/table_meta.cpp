@@ -158,11 +158,12 @@ const IndexMeta *TableMeta::index(const char *name) const
 
 const IndexMeta *TableMeta::find_index_by_field(const char *field) const
 {
+  // 目前只支持单列索引的自动选择
+  // 多列索引需要通过 find_index_by_fields 显式选择
   for (const IndexMeta &index : indexes_) {
-    // 对于多列索引，只检查第一个字段（前缀匹配规则）
-    // 只有查询条件中包含多列索引的第一个字段，该索引才可能被使用
     const vector<string> &fields = index.fields();
-    if (!fields.empty() && 0 == strcmp(fields[0].c_str(), field)) {
+    // 只返回单列索引
+    if (fields.size() == 1 && 0 == strcmp(fields[0].c_str(), field)) {
       return &index;
     }
   }
