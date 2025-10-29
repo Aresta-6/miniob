@@ -202,19 +202,21 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   RC  rc         = RC::SUCCESS;
   int cmp_result = 0;
   
-  // 特殊处理 LIKE 操作符
-  if (comp_ == LIKE_OP) {
-    // LIKE 操作符要求左边是字符串，右边是模式
+  // 特殊处理 LIKE/NOT LIKE 操作符
+  if (comp_ == LIKE_OP || comp_ == NOT_LIKE_OP) {
+    // LIKE 操作符要求左右两侧均为字符串
     if (left.attr_type() != AttrType::CHARS || right.attr_type() != AttrType::CHARS) {
-      LOG_WARN("LIKE operator requires both operands to be strings. left=%d, right=%d", 
+      LOG_WARN("LIKE operator requires both operands to be strings. left=%d, right=%d",
                left.attr_type(), right.attr_type());
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
-    
-    // 先保存string对象，避免临时对象销毁导致指针悬空
-    string text_str = left.get_string();
+
+    // 先保存 string 对象，避免临时对象销毁导致指针悬空
+    string text_str    = left.get_string();
     string pattern_str = right.get_string();
-    result = like_match(text_str.c_str(), pattern_str.c_str());
+
+    bool like_result = like_match(text_str.c_str(), pattern_str.c_str());
+    result           = (comp_ == LIKE_OP) ? like_result : !like_result;
     return RC::SUCCESS;
   }
   
