@@ -18,10 +18,16 @@
 			"visible" : true
 		}
 	],
-	"indexes" : null,
+	"indexes" : 
+	[
+		{
+			"field_name" : "d",
+			"name" : "idx_d"
+		}
+	],
 	"primary_keys" : null,
 	"storage_engine" : 0,
 	"storage_format" : 1,
-	"table_id" : 4,
-	"table_name" : "test_dates"
+	"table_id" : 7,
+	"table_name" : "idx_date_test"
 }

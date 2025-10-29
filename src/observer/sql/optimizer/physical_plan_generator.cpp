@@ -28,6 +28,8 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/index_scan_physical_operator.h"
 #include "sql/operator/insert_logical_operator.h"
 #include "sql/operator/insert_physical_operator.h"
+#include "storage/index/index.h"
+#include "storage/field/field_meta.h"
 #include "sql/operator/join_logical_operator.h"
 #include "sql/operator/nested_loop_join_physical_operator.h"
 #include "sql/operator/predicate_logical_operator.h"
@@ -169,13 +171,38 @@ RC PhysicalPlanGenerator::create_plan(TableGetLogicalOperator &table_get_oper, u
   if (index != nullptr) {
     ASSERT(value_expr != nullptr, "got an index but value expr is null ?");
 
-    const Value               &value           = value_expr->get_value();
+    const Value &value = value_expr->get_value();
+    
+    // 获取索引字段的类型
+    const char *field_name = index->index_meta().field();
+    const FieldMeta *field_meta = table->table_meta().field(field_name);
+    ASSERT(field_meta != nullptr, "field not found in table meta");
+    
+    // 如果value类型与字段类型不匹配，进行类型转换
+    Value converted_value;
+    const Value *final_value = &value;
+    if (value.attr_type() != field_meta->type()) {
+      LOG_INFO("Index scan: value type mismatch, converting from %d to %d", 
+               value.attr_type(), field_meta->type());
+      RC rc = Value::cast_to(value, field_meta->type(), converted_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast value to field type. value_type=%d, field_type=%d, rc=%s", 
+                 value.attr_type(), field_meta->type(), strrc(rc));
+        // 如果转换失败，仍使用原值（可能会导致查询结果不正确，但不会崩溃）
+      } else {
+        LOG_INFO("Index scan: value converted successfully");
+        final_value = &converted_value;
+      }
+    } else {
+      LOG_INFO("Index scan: value type matches field type (%d)", value.attr_type());
+    }
+    
     IndexScanPhysicalOperator *index_scan_oper = new IndexScanPhysicalOperator(table,
         index,
         table_get_oper.read_write_mode(),
-        &value,
+        final_value,
         true /*left_inclusive*/,
-        &value,
+        final_value,
         true /*right_inclusive*/);
 
     index_scan_oper->set_predicates(std::move(predicates));

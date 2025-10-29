@@ -11,25 +11,23 @@
 		},
 		{
 			"FIELD_id" : 1,
-			"len" : 50,
-			"name" : "event_name",
-			"offset" : 4,
-			"type" : "chars",
-			"visible" : true
-		},
-		{
-			"FIELD_id" : 2,
 			"len" : 4,
-			"name" : "event_date",
-			"offset" : 54,
+			"name" : "d",
+			"offset" : 4,
 			"type" : "dates",
 			"visible" : true
 		}
 	],
-	"indexes" : null,
+	"indexes" : 
+	[
+		{
+			"field_name" : "d",
+			"name" : "idx_d"
+		}
+	],
 	"primary_keys" : null,
 	"storage_engine" : 0,
 	"storage_format" : 1,
-	"table_id" : 3,
-	"table_name" : "events"
+	"table_id" : 4,
+	"table_name" : "eq_test"
 }
