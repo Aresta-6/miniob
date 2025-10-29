@@ -172,6 +172,64 @@ RC MvccTrx::delete_record(Table *table, Record &record)
   return RC::SUCCESS;
 }
 
+RC MvccTrx::update_record(Table *table, Record &old_record, Record &new_record)
+{
+  Field begin_field;
+  Field end_field;
+  trx_fields(table, begin_field, end_field);
+
+  RC update_result = RC::SUCCESS;
+
+  // 检查记录是否可见，并进行更新
+  RC rc = table->visit_record(old_record.rid(), [this, table, &update_result, &begin_field, &end_field](Record &inplace_record) -> bool {
+    RC rc = this->visit_record(table, inplace_record, ReadWriteMode::READ_WRITE);
+    if (OB_FAIL(rc)) {
+      update_result = rc;
+      return false;
+    }
+    // 不需要修改事务字段，因为update不改变记录的可见性
+    return false;  // 返回false表示不需要更新，因为实际更新由update_record_with_trx完成
+  });
+
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to visit record. rc=%s", strrc(rc));
+    return rc;
+  }
+
+  if (OB_FAIL(update_result)) {
+    LOG_TRACE("record is not visible. rid=%s, rc=%s", old_record.rid().to_string().c_str(), strrc(update_result));
+    return update_result;
+  }
+
+  // 调用表的更新方法（处理索引更新）
+  rc = table->update_record_with_trx(old_record, new_record, this);
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to update record. table=%s, rid=%s, rc=%s", 
+             table->name(), old_record.rid().to_string().c_str(), strrc(rc));
+    return rc;
+  }
+
+  // UPDATE在MVCC中可以看作是delete+insert的组合
+  // 这里简化处理，记录delete和insert日志
+  rc = log_handler_.delete_record(trx_id_, table, old_record.rid());
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to append delete record log for update. trx id=%d, table id=%d, rid=%s, rc=%s",
+        trx_id_, table->table_id(), old_record.rid().to_string().c_str(), strrc(rc));
+    return rc;
+  }
+
+  rc = log_handler_.insert_record(trx_id_, table, new_record.rid());
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to append insert record log for update. trx id=%d, table id=%d, rid=%s, rc=%s",
+        trx_id_, table->table_id(), new_record.rid().to_string().c_str(), strrc(rc));
+    return rc;
+  }
+
+  operations_.push_back(Operation(Operation::Type::UPDATE, table, new_record.rid()));
+
+  return RC::SUCCESS;
+}
+
 RC MvccTrx::visit_record(Table *table, Record &record, ReadWriteMode mode)
 {
   Field begin_field;

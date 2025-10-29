@@ -103,6 +103,47 @@ RC HeapTableEngine::delete_record(const Record &record)
   return rc;
 }
 
+RC HeapTableEngine::update_record_with_trx(const Record &old_record, const Record &new_record, Trx *trx)
+{
+  RC rc = RC::SUCCESS;
+  
+  // 1. 先删除旧的索引项
+  rc = delete_entry_of_indexes(old_record.data(), old_record.rid(), false);
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to delete old index entries. table=%s, rc=%s", table_meta_->name(), strrc(rc));
+    return rc;
+  }
+
+  // 2. 更新记录本身
+  rc = record_handler_->visit_record(old_record.rid(), [&new_record](Record &record) -> bool {
+    memcpy(record.data(), new_record.data(), new_record.len());
+    return true;  // 返回true表示需要更新
+  });
+  
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to update record. table=%s, rid=%s, rc=%s", 
+             table_meta_->name(), old_record.rid().to_string().c_str(), strrc(rc));
+    // 尝试恢复旧的索引项
+    insert_entry_of_indexes(old_record.data(), old_record.rid());
+    return rc;
+  }
+
+  // 3. 插入新的索引项
+  rc = insert_entry_of_indexes(new_record.data(), new_record.rid());
+  if (rc != RC::SUCCESS) {
+    LOG_WARN("failed to insert new index entries. table=%s, rc=%s", table_meta_->name(), strrc(rc));
+    // 尝试恢复：撤销记录更新并恢复旧的索引项
+    record_handler_->visit_record(old_record.rid(), [&old_record](Record &record) -> bool {
+      memcpy(record.data(), old_record.data(), old_record.len());
+      return true;
+    });
+    insert_entry_of_indexes(old_record.data(), old_record.rid());
+    return rc;
+  }
+
+  return RC::SUCCESS;
+}
+
 RC HeapTableEngine::get_record_scanner(RecordScanner *&scanner, Trx *trx, ReadWriteMode mode)
 {
   scanner = new HeapRecordScanner(table_, *data_buffer_pool_, trx, db_->log_handler(), mode, nullptr);
