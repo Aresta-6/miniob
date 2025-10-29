@@ -36,8 +36,8 @@ RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
       if (rc != RC::SUCCESS) {
         return rc;
       }
-      result.set_type(AttrType::DATES);
       result.set_int(date_int);
+      result.set_type(AttrType::DATES);  // 必须在set_int之后设置类型
       return RC::SUCCESS;
     }
     default: return RC::UNIMPLEMENTED;

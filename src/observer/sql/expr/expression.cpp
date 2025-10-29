@@ -142,8 +142,42 @@ ComparisonExpr::~ComparisonExpr() {}
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC  rc         = RC::SUCCESS;
-  int cmp_result = left.compare(right);
-  result         = false;
+  int cmp_result = 0;
+  
+  // 如果类型不同，尝试进行类型转换
+  if (left.attr_type() != right.attr_type()) {
+    Value left_converted = left;
+    Value right_converted = right;
+    
+    // 尝试将右值转换为左值的类型
+    if (right.attr_type() == AttrType::CHARS && 
+        (left.attr_type() == AttrType::DATES || left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS)) {
+      rc = Value::cast_to(right, left.attr_type(), right_converted);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast right value to left type. rc=%s", strrc(rc));
+        return rc;
+      }
+      cmp_result = left.compare(right_converted);
+    }
+    // 尝试将左值转换为右值的类型
+    else if (left.attr_type() == AttrType::CHARS && 
+             (right.attr_type() == AttrType::DATES || right.attr_type() == AttrType::INTS || right.attr_type() == AttrType::FLOATS)) {
+      rc = Value::cast_to(left, right.attr_type(), left_converted);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast left value to right type. rc=%s", strrc(rc));
+        return rc;
+      }
+      cmp_result = left_converted.compare(right);
+    }
+    else {
+      LOG_WARN("unsupported type comparison. left=%d, right=%d", left.attr_type(), right.attr_type());
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+  } else {
+    cmp_result = left.compare(right);
+  }
+  
+  result = false;
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -234,11 +268,30 @@ RC ComparisonExpr::eval(Chunk &chunk, vector<uint8_t> &select)
     LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
     return rc;
   }
+  
+  // 如果类型不同，使用 compare_value 进行逐行比较（支持类型转换）
   if (left_column.attr_type() != right_column.attr_type()) {
-    LOG_WARN("cannot compare columns with different types");
-    return RC::INTERNAL;
+    int rows = 0;
+    if (left_column.column_type() == Column::Type::CONSTANT_COLUMN) {
+      rows = right_column.count();
+    } else {
+      rows = left_column.count();
+    }
+    for (int i = 0; i < rows; ++i) {
+      Value left_val = left_column.get_value(i);
+      Value right_val = right_column.get_value(i);
+      bool  result   = false;
+      rc             = compare_value(left_val, right_val, result);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to compare tuple cells. rc=%s", strrc(rc));
+        return rc;
+      }
+      select[i] &= result ? 1 : 0;
+    }
+    return RC::SUCCESS;
   }
-  if (left_column.attr_type() == AttrType::INTS) {
+  
+  if (left_column.attr_type() == AttrType::INTS || left_column.attr_type() == AttrType::DATES) {
     rc = compare_column<int>(left_column, right_column, select);
   } else if (left_column.attr_type() == AttrType::FLOATS) {
     rc = compare_column<float>(left_column, right_column, select);
