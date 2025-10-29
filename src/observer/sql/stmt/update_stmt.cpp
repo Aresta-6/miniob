@@ -53,12 +53,17 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt)
     return RC::SCHEMA_FIELD_MISSING;
   }
 
-  // check field type
-  const Value &value = update.value;
-  if (field_meta->type() != value.attr_type()) {
-    LOG_WARN("field type mismatch. table=%s, field=%s, field type=%d, value_type=%d",
-             table_name, field_meta->name(), field_meta->type(), value.attr_type());
-    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+  // check and convert field type if necessary
+  Value final_value = update.value;
+  if (field_meta->type() != final_value.attr_type()) {
+    Value converted_value;
+    RC rc = Value::cast_to(final_value, field_meta->type(), converted_value);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to cast value. table=%s, field=%s, field type=%d, value type=%d, rc=%s",
+               table_name, field_meta->name(), field_meta->type(), final_value.attr_type(), strrc(rc));
+      return rc;
+    }
+    final_value = converted_value;
   }
 
   // create filter statement
@@ -73,6 +78,6 @@ RC UpdateStmt::create(Db *db, const UpdateSqlNode &update, Stmt *&stmt)
     return rc;
   }
 
-  stmt = new UpdateStmt(table, filter_stmt, field_meta, value);
+  stmt = new UpdateStmt(table, filter_stmt, field_meta, final_value);
   return RC::SUCCESS;
 }

@@ -174,6 +174,12 @@ RC MvccTrx::delete_record(Table *table, Record &record)
 
 RC MvccTrx::update_record(Table *table, Record &old_record, Record &new_record)
 {
+  RC rc = start_if_need();
+  if (OB_FAIL(rc)) {
+    LOG_WARN("failed to start transaction when updating record. rc=%s", strrc(rc));
+    return rc;
+  }
+
   Field begin_field;
   Field end_field;
   trx_fields(table, begin_field, end_field);
@@ -181,7 +187,7 @@ RC MvccTrx::update_record(Table *table, Record &old_record, Record &new_record)
   RC update_result = RC::SUCCESS;
 
   // 检查记录是否可见，并进行更新
-  RC rc = table->visit_record(old_record.rid(), [this, table, &update_result, &begin_field, &end_field](Record &inplace_record) -> bool {
+  rc = table->visit_record(old_record.rid(), [this, table, &update_result, &begin_field, &end_field](Record &inplace_record) -> bool {
     RC rc = this->visit_record(table, inplace_record, ReadWriteMode::READ_WRITE);
     if (OB_FAIL(rc)) {
       update_result = rc;
@@ -224,8 +230,6 @@ RC MvccTrx::update_record(Table *table, Record &old_record, Record &new_record)
         trx_id_, table->table_id(), new_record.rid().to_string().c_str(), strrc(rc));
     return rc;
   }
-
-  operations_.push_back(Operation(Operation::Type::UPDATE, table, new_record.rid()));
 
   return RC::SUCCESS;
 }

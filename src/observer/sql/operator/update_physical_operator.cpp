@@ -61,12 +61,12 @@ RC UpdatePhysicalOperator::open(Trx *trx)
     new_record.copy_data(old_record.data(), old_record.len());
     new_record.set_rid(old_record.rid());
 
-    // 修改指定字段的值
-    const int offset = field_meta_->offset();
-    const int len = field_meta_->len();
-    
-    // 根据字段类型设置值
-    memcpy(new_record.data() + offset, value_.data(), len);
+    // 使用Table的方法设置字段值，以正确处理不同类型（特别是CHARS）
+    rc = table_->set_value_to_record(new_record.data(), value_, field_meta_);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to set value to record: %s", strrc(rc));
+      return rc;
+    }
 
     // 调用事务的更新接口
     rc = trx_->update_record(table_, old_record, new_record);
