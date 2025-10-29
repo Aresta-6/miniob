@@ -148,10 +148,29 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
   if (left.attr_type() != right.attr_type()) {
     Value left_converted = left;
     Value right_converted = right;
-    
+    bool  left_numeric    = (left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS);
+    bool  right_numeric   = (right.attr_type() == AttrType::INTS || right.attr_type() == AttrType::FLOATS);
+
+    if (left_numeric && right_numeric) {
+      if (left.attr_type() != AttrType::FLOATS) {
+        rc = Value::cast_to(left, AttrType::FLOATS, left_converted);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("failed to cast left numeric value to float. rc=%s", strrc(rc));
+          return rc;
+        }
+      }
+      if (right.attr_type() != AttrType::FLOATS) {
+        rc = Value::cast_to(right, AttrType::FLOATS, right_converted);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("failed to cast right numeric value to float. rc=%s", strrc(rc));
+          return rc;
+        }
+      }
+      cmp_result = left_converted.compare(right_converted);
+    }
     // 尝试将右值转换为左值的类型
-    if (right.attr_type() == AttrType::CHARS && 
-        (left.attr_type() == AttrType::DATES || left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS)) {
+    else if (right.attr_type() == AttrType::CHARS && 
+             (left.attr_type() == AttrType::DATES || left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS)) {
       rc = Value::cast_to(right, left.attr_type(), right_converted);
       if (rc != RC::SUCCESS) {
         LOG_WARN("failed to cast right value to left type. rc=%s", strrc(rc));
@@ -168,8 +187,7 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
         return rc;
       }
       cmp_result = left_converted.compare(right);
-    }
-    else {
+    } else {
       LOG_WARN("unsupported type comparison. left=%d, right=%d", left.attr_type(), right.attr_type());
       return RC::SCHEMA_FIELD_TYPE_MISMATCH;
     }
