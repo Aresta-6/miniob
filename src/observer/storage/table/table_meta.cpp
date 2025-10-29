@@ -159,11 +159,61 @@ const IndexMeta *TableMeta::index(const char *name) const
 const IndexMeta *TableMeta::find_index_by_field(const char *field) const
 {
   for (const IndexMeta &index : indexes_) {
-    if (0 == strcmp(index.field(), field)) {
+    // 对于多列索引，只检查第一个字段（前缀匹配规则）
+    // 只有查询条件中包含多列索引的第一个字段，该索引才可能被使用
+    const vector<string> &fields = index.fields();
+    if (!fields.empty() && 0 == strcmp(fields[0].c_str(), field)) {
       return &index;
     }
   }
   return nullptr;
+}
+
+const IndexMeta *TableMeta::find_index_by_fields(const vector<string> &query_fields) const
+{
+  if (query_fields.empty()) {
+    return nullptr;
+  }
+
+  const IndexMeta *best_index = nullptr;
+  int best_match_count = 0;
+
+  // 遍历所有索引，找到最匹配的索引
+  for (const IndexMeta &index : indexes_) {
+    const vector<string> &index_fields = index.fields();
+    if (index_fields.empty()) {
+      continue;
+    }
+
+    // 检查索引的前缀是否与查询字段匹配
+    int match_count = 0;
+    for (size_t i = 0; i < index_fields.size() && i < query_fields.size(); i++) {
+      bool found = false;
+      for (const string &query_field : query_fields) {
+        if (index_fields[i] == query_field) {
+          found = true;
+          break;
+        }
+      }
+      
+      if (found) {
+        match_count++;
+      } else {
+        // 多列索引必须按顺序匹配，如果中间某个字段不匹配，就不能使用
+        break;
+      }
+    }
+
+    // 只有第一个字段匹配的索引才能被使用（前缀规则）
+    if (match_count > 0 && index_fields[0] == query_fields[0]) {
+      if (match_count > best_match_count) {
+        best_match_count = match_count;
+        best_index = &index;
+      }
+    }
+  }
+
+  return best_index;
 }
 
 const IndexMeta *TableMeta::index(int i) const { return &indexes_[i]; }

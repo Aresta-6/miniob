@@ -29,6 +29,11 @@ public:
 
   RC create(Table *table, const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta) override;
   RC open(Table *table, const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta) override;
+  
+  // 多列索引的创建和打开
+  RC create(Table *table, const char *file_name, const IndexMeta &index_meta, const vector<FieldMeta> &field_metas) override;
+  RC open(Table *table, const char *file_name, const IndexMeta &index_meta, const vector<FieldMeta> &field_metas) override;
+  
   RC close();
 
   RC insert_entry(const char *record, const RID *rid) override;
@@ -41,6 +46,12 @@ public:
       int right_len, bool right_inclusive) override;
 
   RC sync() override;
+
+private:
+  // 为多列索引构建复合键
+  RC make_key(const char *record, char *key_buf, int &key_len);
+  // 计算多列索引的总键长度
+  int calc_multi_key_len() const;
 
 private:
   bool             inited_ = false;

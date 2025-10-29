@@ -279,6 +279,16 @@ RC Table::create_index(Trx *trx, const FieldMeta *field_meta, const char *index_
   return engine_->create_index(trx, field_meta, index_name);
 }
 
+RC Table::create_index(Trx *trx, const vector<const FieldMeta *> &field_metas, const char *index_name)
+{
+  HeapTableEngine *heap_engine = dynamic_cast<HeapTableEngine *>(engine_.get());
+  if (heap_engine == nullptr) {
+    LOG_WARN("Only HeapTableEngine supports multi-column index currently");
+    return RC::UNSUPPORTED;
+  }
+  return heap_engine->create_index(trx, field_metas, index_name);
+}
+
 RC Table::delete_record(const Record &record)
 {
   return engine_->delete_record(record);
