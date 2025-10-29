@@ -40,6 +40,16 @@ RC CharType::cast_to(const Value &val, AttrType type, Value &result) const
       result.set_type(AttrType::DATES);  // 必须在set_int之后设置类型
       return RC::SUCCESS;
     }
+    case AttrType::INTS: {
+      int int_value = val.get_int();
+      result.set_int(int_value);
+      return RC::SUCCESS;
+    }
+    case AttrType::FLOATS: {
+      float float_value = val.get_float();
+      result.set_float(float_value);
+      return RC::SUCCESS;
+    }
     default: return RC::UNIMPLEMENTED;
   }
   return RC::SUCCESS;
@@ -50,8 +60,8 @@ int CharType::cast_cost(AttrType type)
   if (type == AttrType::CHARS) {
     return 0;
   }
-  if (type == AttrType::DATES) {
-    return 1;  // 字符串可以转换为日期，成本为1
+  if (type == AttrType::DATES || type == AttrType::INTS || type == AttrType::FLOATS) {
+    return 1;  // 字符串可以转换为日期、整数或浮点数，成本为1
   }
   return INT32_MAX;
 }
