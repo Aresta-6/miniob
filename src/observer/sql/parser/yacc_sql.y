@@ -118,6 +118,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         LE
         GE
         NE
+        INNER
+        JOIN
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -135,6 +137,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   vector<RelAttrSqlNode> *                   rel_attr_list;
   vector<string> *                           relation_list;
   vector<string> *                           key_list;
+  JoinSqlNode *                              join_node;
+  vector<JoinSqlNode> *                      join_list;
   char *                                     cstring;
   int                                        number;
   float                                      floats;
@@ -151,6 +155,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 // %destructor { delete $$; } <rel_attr_list>
 %destructor { delete $$; } <relation_list>
 %destructor { delete $$; } <key_list>
+%destructor { delete $$; } <join_node>
+%destructor { delete $$; } <join_list>
 
 %token <number> NUMBER
 %token <floats> FLOAT
@@ -171,6 +177,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <value_list>          value_list
 %type <condition_list>      where
 %type <condition_list>      condition_list
+%type <condition_list>      on_conditions
 %type <cstring>             storage_format
 %type <key_list>            primary_key
 %type <key_list>            attr_list
@@ -181,6 +188,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <expression_list>     group_by
 %type <cstring>             fields_terminated_by
 %type <cstring>             enclosed_by
+%type <join_node>           join_node
+%type <join_list>           join_list
 %type <sql_node>            calc_stmt
 %type <sql_node>            select_stmt
 %type <sql_node>            insert_stmt
@@ -485,7 +494,36 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM rel_list where group_by
+    SELECT expression_list FROM relation join_list where group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      // 第一个表名
+      if ($4 != nullptr) {
+        $$->selection.relations.push_back($4);
+      }
+
+      // JOIN 的表
+      if ($5 != nullptr) {
+        $$->selection.joins.swap(*$5);
+        delete $5;
+      }
+
+      if ($6 != nullptr) {
+        $$->selection.conditions.swap(*$6);
+        delete $6;
+      }
+
+      if ($7 != nullptr) {
+        $$->selection.group_by.swap(*$7);
+        delete $7;
+      }
+    }
+    | SELECT expression_list FROM rel_list where group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -695,6 +733,52 @@ comp_op:
     | LE { $$ = LESS_EQUAL; }
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
+    ;
+
+join_list:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | join_node join_list
+    {
+      if ($2 != nullptr) {
+        $$ = $2;
+      } else {
+        $$ = new vector<JoinSqlNode>();
+      }
+      $$->insert($$->begin(), *$1);
+      delete $1;
+    }
+    ;
+
+join_node:
+    INNER JOIN relation ON on_conditions
+    {
+      $$ = new JoinSqlNode();
+      $$->table_name = $3;
+      if ($5 != nullptr) {
+        $$->conditions.swap(*$5);
+        delete $5;
+      }
+    }
+    ;
+
+on_conditions:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | condition {
+      $$ = new vector<ConditionSqlNode>;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    | condition AND on_conditions {
+      $$ = $3;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
     ;
 
 // your code here

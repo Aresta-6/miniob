@@ -29,6 +29,13 @@ SelectStmt::~SelectStmt()
     delete filter_stmt_;
     filter_stmt_ = nullptr;
   }
+  
+  for (FilterStmt *join_filter : join_filter_stmts_) {
+    if (join_filter != nullptr) {
+      delete join_filter;
+    }
+  }
+  join_filter_stmts_.clear();
 }
 
 RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
@@ -47,6 +54,25 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     const char *table_name = select_sql.relations[i].c_str();
     if (nullptr == table_name) {
       LOG_WARN("invalid argument. relation name is null. index=%d", i);
+      return RC::INVALID_ARGUMENT;
+    }
+
+    Table *table = db->find_table(table_name);
+    if (nullptr == table) {
+      LOG_WARN("no such table. db=%s, table_name=%s", db->name(), table_name);
+      return RC::SCHEMA_TABLE_NOT_EXIST;
+    }
+
+    binder_context.add_table(table);
+    tables.push_back(table);
+    table_map.insert({table_name, table});
+  }
+
+  // collect tables in JOIN clause
+  for (size_t i = 0; i < select_sql.joins.size(); i++) {
+    const char *table_name = select_sql.joins[i].table_name.c_str();
+    if (nullptr == table_name) {
+      LOG_WARN("invalid argument. join relation name is null. index=%d", i);
       return RC::INVALID_ARGUMENT;
     }
 
@@ -100,6 +126,33 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     return rc;
   }
 
+  // create filter statements for JOIN conditions
+  vector<FilterStmt *> join_filter_stmts;
+  // 第一个表没有 JOIN 条件，设置为 nullptr
+  for (size_t i = 0; i < select_sql.relations.size(); i++) {
+    join_filter_stmts.push_back(nullptr);
+  }
+  
+  for (size_t i = 0; i < select_sql.joins.size(); i++) {
+    FilterStmt *join_filter = nullptr;
+    rc = FilterStmt::create(db,
+        nullptr,  // no default table for JOIN conditions
+        &table_map,
+        select_sql.joins[i].conditions.data(),
+        static_cast<int>(select_sql.joins[i].conditions.size()),
+        join_filter);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("cannot construct join filter stmt for table %s", select_sql.joins[i].table_name.c_str());
+      // 清理已创建的 FilterStmt
+      for (FilterStmt *f : join_filter_stmts) {
+        if (f != nullptr) delete f;
+      }
+      if (filter_stmt != nullptr) delete filter_stmt;
+      return rc;
+    }
+    join_filter_stmts.push_back(join_filter);
+  }
+
   // everything alright
   SelectStmt *select_stmt = new SelectStmt();
 
@@ -107,6 +160,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->query_expressions_.swap(bound_expressions);
   select_stmt->filter_stmt_ = filter_stmt;
   select_stmt->group_by_.swap(group_by_expressions);
+  select_stmt->join_filter_stmts_.swap(join_filter_stmts);
   stmt                      = select_stmt;
   return RC::SUCCESS;
 }

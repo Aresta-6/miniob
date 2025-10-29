@@ -109,15 +109,40 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   }
 
   const vector<Table *> &tables = select_stmt->tables();
-  for (Table *table : tables) {
-
+  const vector<FilterStmt *> &join_filter_stmts = select_stmt->join_filter_stmts();
+  
+  for (size_t i = 0; i < tables.size(); i++) {
+    Table *table = tables[i];
     unique_ptr<LogicalOperator> table_get_oper(new TableGetLogicalOperator(table, ReadWriteMode::READ_ONLY));
+    
     if (table_oper == nullptr) {
       table_oper = std::move(table_get_oper);
     } else {
       JoinLogicalOperator *join_oper = new JoinLogicalOperator;
       join_oper->add_child(std::move(table_oper));
       join_oper->add_child(std::move(table_get_oper));
+      
+      // 添加 JOIN 条件
+      if (i < join_filter_stmts.size() && join_filter_stmts[i] != nullptr) {
+        FilterStmt *join_filter = join_filter_stmts[i];
+        const vector<FilterUnit *> &filter_units = join_filter->filter_units();
+        for (const FilterUnit *filter_unit : filter_units) {
+          const FilterObj &filter_obj_left  = filter_unit->left();
+          const FilterObj &filter_obj_right = filter_unit->right();
+
+          unique_ptr<Expression> left(filter_obj_left.is_attr
+                                          ? static_cast<Expression *>(new FieldExpr(filter_obj_left.field))
+                                          : static_cast<Expression *>(new ValueExpr(filter_obj_left.value)));
+
+          unique_ptr<Expression> right(filter_obj_right.is_attr
+                                           ? static_cast<Expression *>(new FieldExpr(filter_obj_right.field))
+                                           : static_cast<Expression *>(new ValueExpr(filter_obj_right.value)));
+
+          ComparisonExpr *cmp_expr = new ComparisonExpr(filter_unit->comp(), std::move(left), std::move(right));
+          join_oper->add_join_predicate(unique_ptr<Expression>(cmp_expr));
+        }
+      }
+      
       table_oper = unique_ptr<LogicalOperator>(join_oper);
     }
   }

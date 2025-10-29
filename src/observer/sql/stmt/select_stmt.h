@@ -44,10 +44,13 @@ public:
 
   vector<unique_ptr<Expression>> &query_expressions() { return query_expressions_; }
   vector<unique_ptr<Expression>> &group_by() { return group_by_; }
+  
+  const vector<FilterStmt *> &join_filter_stmts() const { return join_filter_stmts_; }
 
 private:
   vector<unique_ptr<Expression>> query_expressions_;
   vector<Table *>                tables_;
   FilterStmt                    *filter_stmt_ = nullptr;
   vector<unique_ptr<Expression>> group_by_;
+  vector<FilterStmt *>           join_filter_stmts_;  ///< JOIN条件对应的FilterStmt，与tables_对应
 };
