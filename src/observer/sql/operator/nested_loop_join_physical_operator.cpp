@@ -60,6 +60,19 @@ RC NestedLoopJoinPhysicalOperator::next()
         return rc;
       }
     }
+
+    // 评估 JOIN 条件
+    bool predicate_result = true;
+    rc = evaluate_predicate(predicate_result);
+    if (rc != RC::SUCCESS) {
+      return rc;
+    }
+    
+    if (predicate_result) {
+      // 条件满足，返回当前 tuple
+      return RC::SUCCESS;
+    }
+    // 条件不满足，继续下一轮
   }
   return rc;
 }
@@ -130,4 +143,26 @@ RC NestedLoopJoinPhysicalOperator::right_next()
   right_tuple_ = right_->current_tuple();
   joined_tuple_.set_right(right_tuple_);
   return rc;
+}
+
+void NestedLoopJoinPhysicalOperator::set_predicates(unique_ptr<Expression> &&expr)
+{
+  predicate_ = std::move(expr);
+}
+
+RC NestedLoopJoinPhysicalOperator::evaluate_predicate(bool &result)
+{
+  result = true;
+  if (predicate_ == nullptr) {
+    return RC::SUCCESS;
+  }
+
+  Value value;
+  RC rc = predicate_->get_value(joined_tuple_, value);
+  if (rc != RC::SUCCESS) {
+    return rc;
+  }
+
+  result = value.get_boolean();
+  return RC::SUCCESS;
 }

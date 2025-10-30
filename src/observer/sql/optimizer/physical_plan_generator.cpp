@@ -28,6 +28,10 @@ See the Mulan PSL v2 for more details. */
 #include "sql/operator/index_scan_physical_operator.h"
 #include "sql/operator/insert_logical_operator.h"
 #include "sql/operator/insert_physical_operator.h"
+#include "sql/operator/update_logical_operator.h"
+#include "sql/operator/update_physical_operator.h"
+#include "storage/index/index.h"
+#include "storage/field/field_meta.h"
 #include "sql/operator/join_logical_operator.h"
 #include "sql/operator/nested_loop_join_physical_operator.h"
 #include "sql/operator/predicate_logical_operator.h"
@@ -69,6 +73,10 @@ RC PhysicalPlanGenerator::create(LogicalOperator &logical_operator, unique_ptr<P
 
     case LogicalOperatorType::INSERT: {
       return create_plan(static_cast<InsertLogicalOperator &>(logical_operator), oper, session);
+    } break;
+
+    case LogicalOperatorType::UPDATE: {
+      return create_plan(static_cast<UpdateLogicalOperator &>(logical_operator), oper, session);
     } break;
 
     case LogicalOperatorType::DELETE: {
@@ -169,13 +177,38 @@ RC PhysicalPlanGenerator::create_plan(TableGetLogicalOperator &table_get_oper, u
   if (index != nullptr) {
     ASSERT(value_expr != nullptr, "got an index but value expr is null ?");
 
-    const Value               &value           = value_expr->get_value();
+    const Value &value = value_expr->get_value();
+    
+    // 获取索引字段的类型
+    const char *field_name = index->index_meta().field();
+    const FieldMeta *field_meta = table->table_meta().field(field_name);
+    ASSERT(field_meta != nullptr, "field not found in table meta");
+    
+    // 如果value类型与字段类型不匹配，进行类型转换
+    Value converted_value;
+    const Value *final_value = &value;
+    if (value.attr_type() != field_meta->type()) {
+      LOG_INFO("Index scan: value type mismatch, converting from %d to %d", 
+               value.attr_type(), field_meta->type());
+      RC rc = Value::cast_to(value, field_meta->type(), converted_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast value to field type. value_type=%d, field_type=%d, rc=%s", 
+                 value.attr_type(), field_meta->type(), strrc(rc));
+        // 类型转换失败（如无效日期），返回错误而不是继续查询
+        return rc;
+      }
+      LOG_INFO("Index scan: value converted successfully");
+      final_value = &converted_value;
+    } else {
+      LOG_INFO("Index scan: value type matches field type (%d)", value.attr_type());
+    }
+    
     IndexScanPhysicalOperator *index_scan_oper = new IndexScanPhysicalOperator(table,
         index,
         table_get_oper.read_write_mode(),
-        &value,
+        final_value,
         true /*left_inclusive*/,
-        &value,
+        final_value,
         true /*right_inclusive*/);
 
     index_scan_oper->set_predicates(std::move(predicates));
@@ -251,6 +284,32 @@ RC PhysicalPlanGenerator::create_plan(InsertLogicalOperator &insert_oper, unique
   return RC::SUCCESS;
 }
 
+RC PhysicalPlanGenerator::create_plan(UpdateLogicalOperator &update_oper, unique_ptr<PhysicalOperator> &oper, Session* session)
+{
+  vector<unique_ptr<LogicalOperator>> &child_opers = update_oper.children();
+
+  unique_ptr<PhysicalOperator> child_physical_oper;
+
+  RC rc = RC::SUCCESS;
+  if (!child_opers.empty()) {
+    LogicalOperator *child_oper = child_opers.front().get();
+
+    rc = create(*child_oper, child_physical_oper, session);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to create physical operator. rc=%s", strrc(rc));
+      return rc;
+    }
+  }
+
+  oper = unique_ptr<PhysicalOperator>(
+      new UpdatePhysicalOperator(update_oper.table(), update_oper.field_meta(), update_oper.value()));
+
+  if (child_physical_oper) {
+    oper->add_child(std::move(child_physical_oper));
+  }
+  return rc;
+}
+
 RC PhysicalPlanGenerator::create_plan(DeleteLogicalOperator &delete_oper, unique_ptr<PhysicalOperator> &oper, Session* session)
 {
   vector<unique_ptr<LogicalOperator>> &child_opers = delete_oper.children();
@@ -310,7 +369,9 @@ RC PhysicalPlanGenerator::create_plan(JoinLogicalOperator &join_oper, unique_ptr
   if (session->hash_join_on() && can_use_hash_join(join_oper)) {
     // your code here
   } else {
-    unique_ptr<PhysicalOperator> join_physical_oper(new NestedLoopJoinPhysicalOperator());
+    NestedLoopJoinPhysicalOperator *nlj_oper = new NestedLoopJoinPhysicalOperator();
+    unique_ptr<PhysicalOperator> join_physical_oper(nlj_oper);
+    
     for (auto &child_oper : child_opers) {
       unique_ptr<PhysicalOperator> child_physical_oper;
       rc = create(*child_oper, child_physical_oper, session);
@@ -320,6 +381,14 @@ RC PhysicalPlanGenerator::create_plan(JoinLogicalOperator &join_oper, unique_ptr
       }
 
       join_physical_oper->add_child(std::move(child_physical_oper));
+    }
+
+    // 设置 JOIN 条件
+    vector<unique_ptr<Expression>> &join_predicates = join_oper.get_join_predicates();
+    if (!join_predicates.empty()) {
+      // 将多个 JOIN 条件合并为一个 ConjunctionExpr (AND)
+      unique_ptr<ConjunctionExpr> conjunction_expr(new ConjunctionExpr(ConjunctionExpr::Type::AND, join_predicates));
+      nlj_oper->set_predicates(std::move(conjunction_expr));
     }
 
     oper = std::move(join_physical_oper);

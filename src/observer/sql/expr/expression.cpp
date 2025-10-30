@@ -18,6 +18,64 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
+/**
+ * @brief LIKE模式匹配函数
+ * @param text 要匹配的文本
+ * @param pattern LIKE模式，支持 % 和 _ 通配符
+ * @return 是否匹配成功
+ * 
+ * % 匹配零个或多个任意字符（除单引号外）
+ * _ 匹配一个任意字符（除单引号外）
+ */
+static bool like_match(const char *text, const char *pattern)
+{
+  // 如果模式为空，检查文本是否也为空
+  if (*pattern == '\0') {
+    return *text == '\0';
+  }
+
+  // 处理 % 通配符
+  if (*pattern == '%') {
+    // 跳过连续的 %
+    while (*pattern == '%') {
+      pattern++;
+    }
+    // 如果 % 是最后一个字符，匹配成功
+    if (*pattern == '\0') {
+      return true;
+    }
+    // 尝试匹配从当前位置开始的所有可能
+    while (*text != '\0') {
+      // 单引号不能被 % 匹配
+      if (*text == '\'') {
+        text++;
+        continue;
+      }
+      if (like_match(text, pattern)) {
+        return true;
+      }
+      text++;
+    }
+    return like_match(text, pattern);
+  }
+
+  // 处理 _ 通配符
+  if (*pattern == '_') {
+    // _ 必须匹配一个字符，但不能是单引号
+    if (*text == '\0' || *text == '\'') {
+      return false;
+    }
+    return like_match(text + 1, pattern + 1);
+  }
+
+  // 处理普通字符
+  if (*text == *pattern) {
+    return like_match(text + 1, pattern + 1);
+  }
+
+  return false;
+}
+
 RC FieldExpr::get_value(const Tuple &tuple, Value &value) const
 {
   return tuple.find_cell(TupleCellSpec(table_name(), field_name()), value);
@@ -142,8 +200,78 @@ ComparisonExpr::~ComparisonExpr() {}
 RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &result) const
 {
   RC  rc         = RC::SUCCESS;
-  int cmp_result = left.compare(right);
-  result         = false;
+  int cmp_result = 0;
+  
+  // 特殊处理 LIKE/NOT LIKE 操作符
+  if (comp_ == LIKE_OP || comp_ == NOT_LIKE_OP) {
+    // LIKE 操作符要求左右两侧均为字符串
+    if (left.attr_type() != AttrType::CHARS || right.attr_type() != AttrType::CHARS) {
+      LOG_WARN("LIKE operator requires both operands to be strings. left=%d, right=%d",
+               left.attr_type(), right.attr_type());
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+
+    // 先保存 string 对象，避免临时对象销毁导致指针悬空
+    string text_str    = left.get_string();
+    string pattern_str = right.get_string();
+
+    bool like_result = like_match(text_str.c_str(), pattern_str.c_str());
+    result           = (comp_ == LIKE_OP) ? like_result : !like_result;
+    return RC::SUCCESS;
+  }
+  
+  // 如果类型不同，尝试进行类型转换
+  if (left.attr_type() != right.attr_type()) {
+    Value left_converted = left;
+    Value right_converted = right;
+    bool  left_numeric    = (left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS);
+    bool  right_numeric   = (right.attr_type() == AttrType::INTS || right.attr_type() == AttrType::FLOATS);
+
+    if (left_numeric && right_numeric) {
+      if (left.attr_type() != AttrType::FLOATS) {
+        rc = Value::cast_to(left, AttrType::FLOATS, left_converted);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("failed to cast left numeric value to float. rc=%s", strrc(rc));
+          return rc;
+        }
+      }
+      if (right.attr_type() != AttrType::FLOATS) {
+        rc = Value::cast_to(right, AttrType::FLOATS, right_converted);
+        if (rc != RC::SUCCESS) {
+          LOG_WARN("failed to cast right numeric value to float. rc=%s", strrc(rc));
+          return rc;
+        }
+      }
+      cmp_result = left_converted.compare(right_converted);
+    }
+    // 尝试将右值转换为左值的类型
+    else if (right.attr_type() == AttrType::CHARS && 
+             (left.attr_type() == AttrType::DATES || left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS)) {
+      rc = Value::cast_to(right, left.attr_type(), right_converted);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast right value to left type. rc=%s", strrc(rc));
+        return rc;
+      }
+      cmp_result = left.compare(right_converted);
+    }
+    // 尝试将左值转换为右值的类型
+    else if (left.attr_type() == AttrType::CHARS && 
+             (right.attr_type() == AttrType::DATES || right.attr_type() == AttrType::INTS || right.attr_type() == AttrType::FLOATS)) {
+      rc = Value::cast_to(left, right.attr_type(), left_converted);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast left value to right type. rc=%s", strrc(rc));
+        return rc;
+      }
+      cmp_result = left_converted.compare(right);
+    } else {
+      LOG_WARN("unsupported type comparison. left=%d, right=%d", left.attr_type(), right.attr_type());
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
+  } else {
+    cmp_result = left.compare(right);
+  }
+  
+  result = false;
   switch (comp_) {
     case EQUAL_TO: {
       result = (0 == cmp_result);
@@ -200,13 +328,17 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
 
   RC rc = left_->get_value(tuple, left_value);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
-    return rc;
+    // 按照null规则处理：表达式求值失败时，比较结果为false
+    LOG_TRACE("failed to get value of left expression (treating as false). rc=%s", strrc(rc));
+    value.set_boolean(false);
+    return RC::SUCCESS;
   }
   rc = right_->get_value(tuple, right_value);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
-    return rc;
+    // 按照null规则处理：表达式求值失败时，比较结果为false
+    LOG_TRACE("failed to get value of right expression (treating as false). rc=%s", strrc(rc));
+    value.set_boolean(false);
+    return RC::SUCCESS;
   }
 
   bool bool_value = false;
@@ -214,6 +346,14 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   rc = compare_value(left_value, right_value, bool_value);
   if (rc == RC::SUCCESS) {
     value.set_boolean(bool_value);
+  } else if (rc == RC::SCHEMA_FIELD_TYPE_MISMATCH) {
+    // 类型转换失败（如无效日期），传播错误
+    LOG_WARN("type conversion failed in comparison. rc=%s", strrc(rc));
+    return rc;
+  } else {
+    // 其他失败（如除零），按照null规则处理
+    value.set_boolean(false);
+    return RC::SUCCESS;
   }
   return rc;
 }
@@ -234,11 +374,30 @@ RC ComparisonExpr::eval(Chunk &chunk, vector<uint8_t> &select)
     LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
     return rc;
   }
+  
+  // 如果类型不同，使用 compare_value 进行逐行比较（支持类型转换）
   if (left_column.attr_type() != right_column.attr_type()) {
-    LOG_WARN("cannot compare columns with different types");
-    return RC::INTERNAL;
+    int rows = 0;
+    if (left_column.column_type() == Column::Type::CONSTANT_COLUMN) {
+      rows = right_column.count();
+    } else {
+      rows = left_column.count();
+    }
+    for (int i = 0; i < rows; ++i) {
+      Value left_val = left_column.get_value(i);
+      Value right_val = right_column.get_value(i);
+      bool  result   = false;
+      rc             = compare_value(left_val, right_val, result);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to compare tuple cells. rc=%s", strrc(rc));
+        return rc;
+      }
+      select[i] &= result ? 1 : 0;
+    }
+    return RC::SUCCESS;
   }
-  if (left_column.attr_type() == AttrType::INTS) {
+  
+  if (left_column.attr_type() == AttrType::INTS || left_column.attr_type() == AttrType::DATES) {
     rc = compare_column<int>(left_column, right_column, select);
   } else if (left_column.attr_type() == AttrType::FLOATS) {
     rc = compare_column<float>(left_column, right_column, select);
@@ -364,23 +523,26 @@ RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value,
 
   switch (arithmetic_type_) {
     case Type::ADD: {
-      Value::add(left_value, right_value, value);
+      rc = Value::add(left_value, right_value, value);
     } break;
 
     case Type::SUB: {
-      Value::subtract(left_value, right_value, value);
+      rc = Value::subtract(left_value, right_value, value);
     } break;
 
     case Type::MUL: {
-      Value::multiply(left_value, right_value, value);
+      rc = Value::multiply(left_value, right_value, value);
     } break;
 
     case Type::DIV: {
-      Value::divide(left_value, right_value, value);
+      rc = Value::divide(left_value, right_value, value);
+      if (rc != RC::SUCCESS) {
+        LOG_TRACE("Division failed (likely division by zero)");
+      }
     } break;
 
     case Type::NEGATIVE: {
-      Value::negative(left_value, value);
+      rc = Value::negative(left_value, value);
     } break;
 
     default: {
@@ -471,10 +633,13 @@ RC ArithmeticExpr::get_value(const Tuple &tuple, Value &value) const
     LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
     return rc;
   }
-  rc = right_->get_value(tuple, right_value);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
-    return rc;
+  
+  if (right_) {
+    rc = right_->get_value(tuple, right_value);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
   return calc_value(left_value, right_value, value);
 }
@@ -494,10 +659,13 @@ RC ArithmeticExpr::get_column(Chunk &chunk, Column &column)
     LOG_WARN("failed to get column of left expression. rc=%s", strrc(rc));
     return rc;
   }
-  rc = right_->get_column(chunk, right_column);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get column of right expression. rc=%s", strrc(rc));
-    return rc;
+  
+  if (right_) {
+    rc = right_->get_column(chunk, right_column);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("failed to get column of right expression. rc=%s", strrc(rc));
+      return rc;
+    }
   }
   return calc_column(left_column, right_column, column);
 }
@@ -597,7 +765,24 @@ unique_ptr<Aggregator> AggregateExpr::create_aggregator() const
       aggregator = make_unique<SumAggregator>();
       break;
     }
+    case Type::COUNT: {
+      aggregator = make_unique<CountAggregator>();
+      break;
+    }
+    case Type::MAX: {
+      aggregator = make_unique<MaxAggregator>();
+      break;
+    }
+    case Type::MIN: {
+      aggregator = make_unique<MinAggregator>();
+      break;
+    }
+    case Type::AVG: {
+      aggregator = make_unique<AvgAggregator>();
+      break;
+    }
     default: {
+      LOG_WARN("unsupported aggregate type: %d", static_cast<int>(aggregate_type_));
       ASSERT(false, "unsupported aggregate type");
       break;
     }

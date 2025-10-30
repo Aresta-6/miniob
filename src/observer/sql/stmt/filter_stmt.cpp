@@ -16,6 +16,7 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/string.h"
 #include "common/log/log.h"
 #include "common/sys/rc.h"
+#include "common/value.h"
 #include "storage/db/db.h"
 #include "storage/table/table.h"
 
@@ -91,39 +92,68 @@ RC FilterStmt::create_filter_unit(Db *db, Table *default_table, unordered_map<st
 
   filter_unit = new FilterUnit;
 
+  const FieldMeta *left_field_meta  = nullptr;
+  const FieldMeta *right_field_meta = nullptr;
+
+  FilterObj left_filter_obj;
   if (condition.left_is_attr) {
-    Table           *table = nullptr;
+    Table *table = nullptr;
     const FieldMeta *field = nullptr;
-    rc                     = get_table_and_field(db, default_table, tables, condition.left_attr, table, field);
+    rc = get_table_and_field(db, default_table, tables, condition.left_attr, table, field);
     if (rc != RC::SUCCESS) {
       LOG_WARN("cannot find attr");
       return rc;
     }
-    FilterObj filter_obj;
-    filter_obj.init_attr(Field(table, field));
-    filter_unit->set_left(filter_obj);
+    left_field_meta = field;
+    left_filter_obj.init_attr(Field(table, field));
   } else {
-    FilterObj filter_obj;
-    filter_obj.init_value(condition.left_value);
-    filter_unit->set_left(filter_obj);
+    left_filter_obj.init_value(condition.left_value);
   }
 
+  FilterObj right_filter_obj;
   if (condition.right_is_attr) {
-    Table           *table = nullptr;
+    Table *table = nullptr;
     const FieldMeta *field = nullptr;
-    rc                     = get_table_and_field(db, default_table, tables, condition.right_attr, table, field);
+    rc = get_table_and_field(db, default_table, tables, condition.right_attr, table, field);
     if (rc != RC::SUCCESS) {
       LOG_WARN("cannot find attr");
       return rc;
     }
-    FilterObj filter_obj;
-    filter_obj.init_attr(Field(table, field));
-    filter_unit->set_right(filter_obj);
+    right_field_meta = field;
+    right_filter_obj.init_attr(Field(table, field));
   } else {
-    FilterObj filter_obj;
-    filter_obj.init_value(condition.right_value);
-    filter_unit->set_right(filter_obj);
+    right_filter_obj.init_value(condition.right_value);
   }
+
+  // 如果一侧是列而另一侧是常量，则根据列类型尝试进行类型转换
+  if (left_filter_obj.is_attr && !right_filter_obj.is_attr) {
+    AttrType target_type = left_field_meta->type();
+    if (right_filter_obj.value.attr_type() != target_type) {
+      Value cast_value;
+      rc = Value::cast_to(right_filter_obj.value, target_type, cast_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast right value to field type. value_type=%d, field_type=%d, rc=%s",
+            right_filter_obj.value.attr_type(), target_type, strrc(rc));
+        return rc;
+      }
+      right_filter_obj.init_value(cast_value);
+    }
+  } else if (!left_filter_obj.is_attr && right_filter_obj.is_attr) {
+    AttrType target_type = right_field_meta->type();
+    if (left_filter_obj.value.attr_type() != target_type) {
+      Value cast_value;
+      rc = Value::cast_to(left_filter_obj.value, target_type, cast_value);
+      if (rc != RC::SUCCESS) {
+        LOG_WARN("failed to cast left value to field type. value_type=%d, field_type=%d, rc=%s",
+            left_filter_obj.value.attr_type(), target_type, strrc(rc));
+        return rc;
+      }
+      left_filter_obj.init_value(cast_value);
+    }
+  }
+
+  filter_unit->set_left(left_filter_obj);
+  filter_unit->set_right(right_filter_obj);
 
   filter_unit->set_comp(comp);
 

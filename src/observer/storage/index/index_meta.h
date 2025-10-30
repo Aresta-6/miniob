@@ -36,10 +36,13 @@ public:
   IndexMeta() = default;
 
   RC init(const char *name, const FieldMeta &field);
+  RC init(const char *name, const vector<FieldMeta> &fields);
 
 public:
   const char *name() const;
-  const char *field() const;
+  const char *field() const;  // 返回第一个字段名，兼容旧代码
+  const vector<string> &fields() const;  // 返回所有字段名
+  int field_count() const;  // 返回字段数量
 
   void desc(ostream &os) const;
 
@@ -48,6 +51,6 @@ public:
   static RC from_json(const TableMeta &table, const Json::Value &json_value, IndexMeta &index);
 
 protected:
-  string name_;   // index's name
-  string field_;  // field's name
+  string         name_;    // index's name
+  vector<string> fields_;  // field names for multi-column index
 };

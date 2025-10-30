@@ -50,6 +50,17 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   return expr;
 }
 
+ComparisonExpr *create_comparison_expression(CompOp comp,
+                                             Expression *left,
+                                             Expression *right,
+                                             const char *sql_string,
+                                             YYLTYPE *llocp)
+{
+  ComparisonExpr *expr = new ComparisonExpr(comp, unique_ptr<Expression>(left), unique_ptr<Expression>(right));
+  expr->set_name(token_name(sql_string, llocp));
+  return expr;
+}
+
 %}
 
 %define api.pure full
@@ -88,6 +99,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         INT_T
         STRING_T
         FLOAT_T
+        DATE_T
         VECTOR_T
         HELP
         EXIT
@@ -97,6 +109,7 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         FROM
         WHERE
         AND
+        NOT
         SET
         ON
         LOAD
@@ -117,6 +130,9 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
         LE
         GE
         NE
+        LIKE
+        INNER
+        JOIN
 
 /** union 中定义各种数据类型，真实生成的代码也是union类型，所以不能有非POD类型的数据 **/
 %union {
@@ -134,6 +150,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   vector<RelAttrSqlNode> *                   rel_attr_list;
   vector<string> *                           relation_list;
   vector<string> *                           key_list;
+  JoinSqlNode *                              join_node;
+  vector<JoinSqlNode> *                      join_list;
   char *                                     cstring;
   int                                        number;
   float                                      floats;
@@ -150,6 +168,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 // %destructor { delete $$; } <rel_attr_list>
 %destructor { delete $$; } <relation_list>
 %destructor { delete $$; } <key_list>
+%destructor { delete $$; } <join_node>
+%destructor { delete $$; } <join_list>
 
 %token <number> NUMBER
 %token <floats> FLOAT
@@ -170,6 +190,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <value_list>          value_list
 %type <condition_list>      where
 %type <condition_list>      condition_list
+%type <condition_list>      on_conditions
+%type <expression_list>     condition_expression_list
 %type <cstring>             storage_format
 %type <key_list>            primary_key
 %type <key_list>            attr_list
@@ -180,6 +202,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <expression_list>     group_by
 %type <cstring>             fields_terminated_by
 %type <cstring>             enclosed_by
+%type <join_node>           join_node
+%type <join_list>           join_list
 %type <sql_node>            calc_stmt
 %type <sql_node>            select_stmt
 %type <sql_node>            insert_stmt
@@ -208,6 +232,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %left '+' '-'
 %left '*' '/'
 %right UMINUS
+%nonassoc EQ LT GT LE GE NE LIKE NOT_LIKE
+%left AND
 %%
 
 commands: command_wrapper opt_semicolon  //commands or sqls. parser starts here.
@@ -303,13 +329,16 @@ desc_table_stmt:
     ;
 
 create_index_stmt:    /*create index 语句的语法解析树*/
-    CREATE INDEX ID ON ID LBRACE ID RBRACE
+    CREATE INDEX ID ON ID LBRACE attr_list RBRACE
     {
       $$ = new ParsedSqlNode(SCF_CREATE_INDEX);
       CreateIndexSqlNode &create_index = $$->create_index;
       create_index.index_name = $3;
       create_index.relation_name = $5;
-      create_index.attribute_name = $7;
+      if ($7 != nullptr) {
+        create_index.attribute_names.swap(*$7);
+        delete $7;
+      }
     }
     ;
 
@@ -380,6 +409,7 @@ type:
     INT_T      { $$ = static_cast<int>(AttrType::INTS); }
     | STRING_T { $$ = static_cast<int>(AttrType::CHARS); }
     | FLOAT_T  { $$ = static_cast<int>(AttrType::FLOATS); }
+    | DATE_T   { $$ = static_cast<int>(AttrType::DATES); }
     | VECTOR_T { $$ = static_cast<int>(AttrType::VECTORS); }
     ;
 primary_key:
@@ -483,7 +513,31 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM rel_list where group_by
+    SELECT expression_list FROM relation join_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      // 第一个表名
+      if ($4 != nullptr) {
+        $$->selection.relations.push_back($4);
+      }
+
+      // JOIN 的表
+      if ($5 != nullptr) {
+        $$->selection.joins.swap(*$5);
+        delete $5;
+      }
+
+      if ($6 != nullptr) {
+        $$->selection.group_by.swap(*$6);
+        delete $6;
+      }
+    }
+    | SELECT expression_list FROM rel_list group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -497,13 +551,62 @@ select_stmt:        /*  select 语句的语法解析树*/
       }
 
       if ($5 != nullptr) {
-        $$->selection.conditions.swap(*$5);
+        $$->selection.group_by.swap(*$5);
+        delete $5;
+      }
+    }
+    | SELECT expression_list FROM relation join_list WHERE condition_expression_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      // 第一个表名
+      if ($4 != nullptr) {
+        $$->selection.relations.push_back($4);
+      }
+
+      // JOIN 的表
+      if ($5 != nullptr) {
+        $$->selection.joins.swap(*$5);
         delete $5;
       }
 
+      // 表达式条件列表
+      if ($7 != nullptr) {
+        $$->selection.condition_expressions.swap(*$7);
+        delete $7;
+      }
+
+      if ($8 != nullptr) {
+        $$->selection.group_by.swap(*$8);
+        delete $8;
+      }
+    }
+    | SELECT expression_list FROM rel_list WHERE condition_expression_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      if ($4 != nullptr) {
+        $$->selection.relations.swap(*$4);
+        delete $4;
+      }
+
+      // 表达式条件列表
       if ($6 != nullptr) {
-        $$->selection.group_by.swap(*$6);
+        $$->selection.condition_expressions.swap(*$6);
         delete $6;
+      }
+
+      if ($7 != nullptr) {
+        $$->selection.group_by.swap(*$7);
+        delete $7;
       }
     }
     ;
@@ -619,19 +722,33 @@ where:
       $$ = $2;  
     }
     ;
-condition_list:
+condition_expression_list:
     /* empty */
     {
       $$ = nullptr;
     }
-    | condition {
+    | expression comp_op expression %prec EQ {
+      $$ = new vector<unique_ptr<Expression>>;
+      $$->emplace_back(create_comparison_expression($2, $1, $3, sql_string, &@$));
+    }
+    | expression comp_op expression AND condition_expression_list {
+      if ($5 != nullptr) {
+        $$ = $5;
+      } else {
+        $$ = new vector<unique_ptr<Expression>>;
+      }
+      $$->insert($$->begin(), unique_ptr<Expression>(create_comparison_expression($2, $1, $3, sql_string, &@$)));
+    }
+    ;
+condition_list:
+    condition {
       $$ = new vector<ConditionSqlNode>;
       $$->emplace_back(*$1);
       delete $1;
     }
     | condition AND condition_list {
       $$ = $3;
-      $$->emplace_back(*$1);
+      $$->insert($$->begin(), *$1);
       delete $1;
     }
     ;
@@ -693,6 +810,54 @@ comp_op:
     | LE { $$ = LESS_EQUAL; }
     | GE { $$ = GREAT_EQUAL; }
     | NE { $$ = NOT_EQUAL; }
+    | LIKE { $$ = LIKE_OP; }
+    | NOT LIKE { $$ = NOT_LIKE_OP; }
+    ;
+
+join_list:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | join_node join_list
+    {
+      if ($2 != nullptr) {
+        $$ = $2;
+      } else {
+        $$ = new vector<JoinSqlNode>();
+      }
+      $$->insert($$->begin(), *$1);
+      delete $1;
+    }
+    ;
+
+join_node:
+    INNER JOIN relation ON on_conditions
+    {
+      $$ = new JoinSqlNode();
+      $$->table_name = $3;
+      if ($5 != nullptr) {
+        $$->conditions.swap(*$5);
+        delete $5;
+      }
+    }
+    ;
+
+on_conditions:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | condition {
+      $$ = new vector<ConditionSqlNode>;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
+    | condition AND on_conditions {
+      $$ = $3;
+      $$->emplace_back(*$1);
+      delete $1;
+    }
     ;
 
 // your code here
