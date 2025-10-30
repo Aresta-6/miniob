@@ -245,7 +245,9 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
   }
 
   if (OB_FAIL(rc)) {
-    return rc;
+    LOG_WARN("write_tuple_result/write_chunk_result failed with rc=%s", strrc(rc));
+    sql_result->set_return_code(rc);
+    return write_state(event, need_disconnect);
   }
 
   if (cell_num == 0) {

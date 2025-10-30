@@ -49,6 +49,7 @@ RC PredicatePhysicalOperator::next()
     Value value;
     rc = expression_->get_value(*tuple, value);
     if (rc != RC::SUCCESS) {
+      LOG_WARN("PredicatePhysicalOperator: expression->get_value failed with rc=%s", strrc(rc));
       return rc;
     }
 

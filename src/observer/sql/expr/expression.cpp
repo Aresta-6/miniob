@@ -249,7 +249,7 @@ RC ComparisonExpr::compare_value(const Value &left, const Value &right, bool &re
              (left.attr_type() == AttrType::DATES || left.attr_type() == AttrType::INTS || left.attr_type() == AttrType::FLOATS)) {
       rc = Value::cast_to(right, left.attr_type(), right_converted);
       if (rc != RC::SUCCESS) {
-        LOG_WARN("failed to cast right value to left type. rc=%s", strrc(rc));
+        LOG_WARN("failed to cast right value to left type. left_type=%d, rc=%s", left.attr_type(), strrc(rc));
         return rc;
       }
       cmp_result = left.compare(right_converted);

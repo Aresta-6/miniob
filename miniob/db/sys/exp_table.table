@@ -46,6 +46,6 @@
 	"primary_keys" : null,
 	"storage_engine" : 0,
 	"storage_format" : 1,
-	"table_id" : 41,
+	"table_id" : 60,
 	"table_name" : "exp_table"
 }

@@ -12,3 +12,59 @@ insert into date_table values(3, '2020-1-1');
 insert into date_table values(4, '2020-10-28');
 ### 2025-10-29 00:38:29.269
 select * from date_table;
+### 2025-10-30 22:20:25.828
+INSERT INTO date_table VALUES (2, date'2017-2-29');
+### 2025-10-30 22:20:39.166
+INSERT INTO date_table VALUES (1, date'2020-01-21');
+### 2025-10-30 22:20:39.167
+INSERT INTO date_table VALUES (2, date'2020-10-21');
+### 2025-10-30 22:20:39.168
+SELECT * FROM date_table WHERE u_date=date'2020-01-21';
+### 2025-10-30 22:20:39.169
+SELECT * FROM date_table WHERE u_date=date'2017-2-29';
+### 2025-10-30 22:21:47.240
+CREATE INDEX index_id on date_table(u_date);
+### 2025-10-30 22:21:47.264
+INSERT INTO date_table VALUES (2,'2020-10-21');
+### 2025-10-30 22:21:47.265
+INSERT INTO date_table VALUES (3,'2020-1-01');
+### 2025-10-30 22:22:23.445
+INSERT INTO date_table VALUES (1,'2020-01-21');
+### 2025-10-30 22:22:59.376
+SELECT * FROM date_table;
+### 2025-10-30 22:28:38.180
+INSERT INTO date_table VALUES (2, '2020-10-21');
+### 2025-10-30 22:39:27.203
+EXPLAIN SELECT * FROM date_table WHERE u_date='2017-2-29';
+### 2025-10-30 22:41:32.806
+DROP TABLE date_table;
+### 2025-10-30 22:41:32.821
+CREATE TABLE date_table(id int, u_date date);
+### 2025-10-30 22:41:32.836
+INSERT INTO date_table VALUES (1, '2020-01-21');
+### 2025-10-30 22:41:32.838
+SELECT * FROM date_table WHERE u_date='2020-01-21';
+### 2025-10-30 22:41:32.839
+SELECT * FROM date_table WHERE u_date='2017-2-29';
+### 2025-10-30 22:41:32.839
+SELECT * FROM date_table WHERE u_date='2020-13-01';
+### 2025-10-30 22:42:04.179
+drop table exp_table;
+### 2025-10-30 22:42:04.200
+create table exp_table(id int, col1 int, col2 int, col3 float, col4 float);
+### 2025-10-30 22:42:04.216
+insert into exp_table VALUES (5, 8, 6, 3.46, 3.99);
+### 2025-10-30 22:42:04.219
+insert into exp_table VALUES (2, 6, 7, 8.76, 4.39);
+### 2025-10-30 22:42:04.221
+insert into exp_table VALUES (9, 4, 9, 4.84, 1.84);
+### 2025-10-30 22:42:04.222
+select * from exp_table where 0 < col1 - 7;
+### 2025-10-30 22:42:04.226
+select count(id) from exp_table where 9/6*8 < 8+col3*col3/4;
+### 2025-10-30 22:42:04.228
+select min(col1)+avg(col2)*max(col3)/(max(col4) - 2) from exp_table where id<>3/6;
+### 2025-10-30 22:42:04.230
+select count(id) from exp_table where 7/0 > 0;
+### 2025-10-30 22:42:04.231
+exit
