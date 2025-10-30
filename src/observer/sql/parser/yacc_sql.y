@@ -7,6 +7,7 @@
 
 #include "common/log/log.h"
 #include "common/lang/string.h"
+#include "common/type/data_type.h"
 #include "sql/parser/parse_defs.h"
 #include "sql/parser/yacc_sql.hpp"
 #include "sql/parser/lex_sql.h"
@@ -476,6 +477,22 @@ value:
       $$ = new Value(tmp);
       free(tmp);
     }
+    |DATE_T SSS {
+      char *tmp = common::substr($2,1,strlen($2)-2);
+      $$ = new Value();
+      RC rc = DataType::type_instance(AttrType::DATES)->set_value_from_str(*$$, tmp);
+      if (rc != RC::SUCCESS) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Invalid date value: %s", tmp);
+        yyerror(&@$, sql_string, sql_result, scanner, error_msg);
+        free(tmp);
+        delete $$;
+        YYABORT;
+      }
+      $$->set_type(AttrType::DATES);
+      free(tmp);
+      @$ = @2;
+    }
     ;
 storage_format:
     /* empty */
@@ -513,7 +530,61 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM relation join_list group_by
+    SELECT expression_list FROM relation join_list WHERE condition_expression_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      // 第一个表名
+      if ($4 != nullptr) {
+        $$->selection.relations.push_back($4);
+      }
+
+      // JOIN 的表
+      if ($5 != nullptr) {
+        $$->selection.joins.swap(*$5);
+        delete $5;
+      }
+
+      // 表达式条件列表（支持算术表达式）
+      if ($7 != nullptr) {
+        $$->selection.condition_expressions.swap(*$7);
+        delete $7;
+      }
+
+      if ($8 != nullptr) {
+        $$->selection.group_by.swap(*$8);
+        delete $8;
+      }
+    }
+    | SELECT expression_list FROM rel_list WHERE condition_expression_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      if ($4 != nullptr) {
+        $$->selection.relations.swap(*$4);
+        delete $4;
+      }
+
+      // 表达式条件列表（支持算术表达式）
+      if ($6 != nullptr) {
+        $$->selection.condition_expressions.swap(*$6);
+        delete $6;
+      }
+
+      if ($7 != nullptr) {
+        $$->selection.group_by.swap(*$7);
+        delete $7;
+      }
+    }
+    | SELECT expression_list FROM relation join_list group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -553,60 +624,6 @@ select_stmt:        /*  select 语句的语法解析树*/
       if ($5 != nullptr) {
         $$->selection.group_by.swap(*$5);
         delete $5;
-      }
-    }
-    | SELECT expression_list FROM relation join_list WHERE condition_expression_list group_by
-    {
-      $$ = new ParsedSqlNode(SCF_SELECT);
-      if ($2 != nullptr) {
-        $$->selection.expressions.swap(*$2);
-        delete $2;
-      }
-
-      // 第一个表名
-      if ($4 != nullptr) {
-        $$->selection.relations.push_back($4);
-      }
-
-      // JOIN 的表
-      if ($5 != nullptr) {
-        $$->selection.joins.swap(*$5);
-        delete $5;
-      }
-
-      // 表达式条件列表
-      if ($7 != nullptr) {
-        $$->selection.condition_expressions.swap(*$7);
-        delete $7;
-      }
-
-      if ($8 != nullptr) {
-        $$->selection.group_by.swap(*$8);
-        delete $8;
-      }
-    }
-    | SELECT expression_list FROM rel_list WHERE condition_expression_list group_by
-    {
-      $$ = new ParsedSqlNode(SCF_SELECT);
-      if ($2 != nullptr) {
-        $$->selection.expressions.swap(*$2);
-        delete $2;
-      }
-
-      if ($4 != nullptr) {
-        $$->selection.relations.swap(*$4);
-        delete $4;
-      }
-
-      // 表达式条件列表
-      if ($6 != nullptr) {
-        $$->selection.condition_expressions.swap(*$6);
-        delete $6;
-      }
-
-      if ($7 != nullptr) {
-        $$->selection.group_by.swap(*$7);
-        delete $7;
       }
     }
     ;

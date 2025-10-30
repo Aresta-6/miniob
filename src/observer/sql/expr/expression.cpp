@@ -342,12 +342,18 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   }
 
   bool bool_value = false;
-
+  
   rc = compare_value(left_value, right_value, bool_value);
   if (rc == RC::SUCCESS) {
     value.set_boolean(bool_value);
   } else {
-    // 比较失败时，也按照null规则处理
+    LOG_WARN("Comparison failed with rc=%s", strrc(rc));
+    // 类型转换失败（如无效日期）应该传播错误，而不是按null规则处理
+    if (rc == RC::SCHEMA_FIELD_TYPE_MISMATCH) {
+      LOG_WARN("Type mismatch or invalid conversion in comparison, propagating error");
+      return rc;
+    }
+    // 其他错误按null规则处理
     value.set_boolean(false);
     return RC::SUCCESS;
   }
@@ -385,7 +391,7 @@ RC ComparisonExpr::eval(Chunk &chunk, vector<uint8_t> &select)
       bool  result   = false;
       rc             = compare_value(left_val, right_val, result);
       if (rc != RC::SUCCESS) {
-        LOG_WARN("failed to compare tuple cells. rc=%s", strrc(rc));
+        LOG_WARN("failed to compare tuple cells in eval (row %d). rc=%s", i, strrc(rc));
         return rc;
       }
       select[i] &= result ? 1 : 0;
