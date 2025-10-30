@@ -50,6 +50,17 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
   return expr;
 }
 
+ComparisonExpr *create_comparison_expression(CompOp comp,
+                                             Expression *left,
+                                             Expression *right,
+                                             const char *sql_string,
+                                             YYLTYPE *llocp)
+{
+  ComparisonExpr *expr = new ComparisonExpr(comp, unique_ptr<Expression>(left), unique_ptr<Expression>(right));
+  expr->set_name(token_name(sql_string, llocp));
+  return expr;
+}
+
 %}
 
 %define api.pure full
@@ -180,6 +191,8 @@ UnboundAggregateExpr *create_aggregate_expression(const char *aggregate_name,
 %type <condition_list>      where
 %type <condition_list>      condition_list
 %type <condition_list>      on_conditions
+%type <expression_list>     where_expression_list
+%type <expression_list>     condition_expression_list
 %type <cstring>             storage_format
 %type <key_list>            primary_key
 %type <key_list>            attr_list
@@ -551,6 +564,60 @@ select_stmt:        /*  select 语句的语法解析树*/
         delete $6;
       }
     }
+    | SELECT expression_list FROM relation join_list WHERE condition_expression_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      // 第一个表名
+      if ($4 != nullptr) {
+        $$->selection.relations.push_back($4);
+      }
+
+      // JOIN 的表
+      if ($5 != nullptr) {
+        $$->selection.joins.swap(*$5);
+        delete $5;
+      }
+
+      // 表达式条件列表
+      if ($7 != nullptr) {
+        $$->selection.condition_expressions.swap(*$7);
+        delete $7;
+      }
+
+      if ($8 != nullptr) {
+        $$->selection.group_by.swap(*$8);
+        delete $8;
+      }
+    }
+    | SELECT expression_list FROM rel_list WHERE condition_expression_list group_by
+    {
+      $$ = new ParsedSqlNode(SCF_SELECT);
+      if ($2 != nullptr) {
+        $$->selection.expressions.swap(*$2);
+        delete $2;
+      }
+
+      if ($4 != nullptr) {
+        $$->selection.relations.swap(*$4);
+        delete $4;
+      }
+
+      // 表达式条件列表
+      if ($6 != nullptr) {
+        $$->selection.condition_expressions.swap(*$6);
+        delete $6;
+      }
+
+      if ($7 != nullptr) {
+        $$->selection.group_by.swap(*$7);
+        delete $7;
+      }
+    }
     ;
 calc_stmt:
     CALC expression_list
@@ -662,6 +729,24 @@ where:
     }
     | WHERE condition_list {
       $$ = $2;  
+    }
+    ;
+condition_expression_list:
+    /* empty */
+    {
+      $$ = nullptr;
+    }
+    | expression comp_op expression {
+      $$ = new vector<unique_ptr<Expression>>;
+      $$->emplace_back(create_comparison_expression($2, $1, $3, sql_string, &@$));
+    }
+    | expression comp_op expression AND condition_expression_list {
+      if ($5 != nullptr) {
+        $$ = $5;
+      } else {
+        $$ = new vector<unique_ptr<Expression>>;
+      }
+      $$->emplace_back(create_comparison_expression($2, $1, $3, sql_string, &@$));
     }
     ;
 condition_list:

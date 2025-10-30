@@ -103,7 +103,8 @@ struct SelectSqlNode
 {
   vector<unique_ptr<Expression>> expressions;  ///< 查询的表达式
   vector<string>                 relations;    ///< 查询的表
-  vector<ConditionSqlNode>       conditions;   ///< 查询条件，使用AND串联起来多个条件
+  vector<ConditionSqlNode>       conditions;   ///< 查询条件，使用AND串联起来多个条件（旧格式，保持兼容性）
+  vector<unique_ptr<Expression>> condition_expressions;  ///< 查询条件表达式（新格式，支持算术表达式）
   vector<unique_ptr<Expression>> group_by;     ///< group by clause
   vector<JoinSqlNode>            joins;        ///< INNER JOIN的表和条件
 };

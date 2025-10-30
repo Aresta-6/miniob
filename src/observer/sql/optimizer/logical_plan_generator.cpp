@@ -102,10 +102,24 @@ RC LogicalPlanGenerator::create_plan(SelectStmt *select_stmt, unique_ptr<Logical
   last_oper = &table_oper;
   unique_ptr<LogicalOperator> predicate_oper;
 
-  RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
-  if (OB_FAIL(rc)) {
-    LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
-    return rc;
+  // Handle WHERE conditions: prefer expression conditions over FilterStmt
+  if (!select_stmt->condition_expressions().empty()) {
+    // Create PredicateLogicalOperator from expression conditions
+    vector<unique_ptr<Expression>> &condition_exprs = select_stmt->condition_expressions();
+    if (condition_exprs.size() == 1) {
+      predicate_oper = unique_ptr<LogicalOperator>(new PredicateLogicalOperator(std::move(condition_exprs[0])));
+      condition_exprs.clear();
+    } else if (condition_exprs.size() > 1) {
+      unique_ptr<ConjunctionExpr> conjunction_expr(new ConjunctionExpr(ConjunctionExpr::Type::AND, condition_exprs));
+      predicate_oper = unique_ptr<LogicalOperator>(new PredicateLogicalOperator(std::move(conjunction_expr)));
+    }
+  } else if (select_stmt->filter_stmt() != nullptr) {
+    // Use old-style FilterStmt for backward compatibility
+    RC rc = create_plan(select_stmt->filter_stmt(), predicate_oper);
+    if (OB_FAIL(rc)) {
+      LOG_WARN("failed to create predicate logical plan. rc=%s", strrc(rc));
+      return rc;
+    }
   }
 
   const vector<Table *> &tables = select_stmt->tables();

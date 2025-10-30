@@ -113,17 +113,31 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     default_table = tables[0];
   }
 
-  // create filter statement in `where` statement
+  // handle WHERE conditions: prefer expression conditions over old-style conditions
   FilterStmt *filter_stmt = nullptr;
-  RC          rc          = FilterStmt::create(db,
-      default_table,
-      &table_map,
-      select_sql.conditions.data(),
-      static_cast<int>(select_sql.conditions.size()),
-      filter_stmt);
-  if (rc != RC::SUCCESS) {
-    LOG_WARN("cannot construct filter stmt");
-    return rc;
+  vector<unique_ptr<Expression>> bound_condition_expressions;
+  
+  if (!select_sql.condition_expressions.empty()) {
+    // Bind expression conditions
+    for (unique_ptr<Expression> &expression : select_sql.condition_expressions) {
+      RC rc = expression_binder.bind_expression(expression, bound_condition_expressions);
+      if (OB_FAIL(rc)) {
+        LOG_INFO("bind condition expression failed. rc=%s", strrc(rc));
+        return rc;
+      }
+    }
+  } else if (!select_sql.conditions.empty()) {
+    // Use old-style FilterStmt for backward compatibility
+    RC rc = FilterStmt::create(db,
+        default_table,
+        &table_map,
+        select_sql.conditions.data(),
+        static_cast<int>(select_sql.conditions.size()),
+        filter_stmt);
+    if (rc != RC::SUCCESS) {
+      LOG_WARN("cannot construct filter stmt");
+      return rc;
+    }
   }
 
   // create filter statements for JOIN conditions
@@ -160,6 +174,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->query_expressions_.swap(bound_expressions);
   select_stmt->filter_stmt_ = filter_stmt;
   select_stmt->group_by_.swap(group_by_expressions);
+  select_stmt->condition_expressions_.swap(bound_condition_expressions);
   select_stmt->join_filter_stmts_.swap(join_filter_stmts);
   stmt                      = select_stmt;
   return RC::SUCCESS;
