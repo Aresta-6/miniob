@@ -53,7 +53,8 @@ RC ExpressionIterator::iterate_child_expr(Expression &expr, function<RC(unique_p
 
       auto &arithmetic_expr = static_cast<ArithmeticExpr &>(expr);
       rc = callback(arithmetic_expr.left());
-      if (OB_SUCC(rc)) {
+      // NEGATIVE操作只有left，没有right
+      if (OB_SUCC(rc) && arithmetic_expr.arithmetic_type() != ArithmeticExpr::Type::NEGATIVE) {
         rc = callback(arithmetic_expr.right());
       }
     } break;
