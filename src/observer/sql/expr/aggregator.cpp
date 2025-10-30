@@ -34,3 +34,17 @@ RC SumAggregator::evaluate(Value& result)
   result = value_;
   return RC::SUCCESS;
 }
+
+RC CountAggregator::accumulate(const Value &value)
+{
+  // COUNT统计所有非空值，包括异常值（按null规则处理的情况）
+  // 这里简化处理，只要accumulate被调用就计数
+  count_++;
+  return RC::SUCCESS;
+}
+
+RC CountAggregator::evaluate(Value& result)
+{
+  result.set_int(count_);
+  return RC::SUCCESS;
+}
