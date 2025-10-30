@@ -346,8 +346,12 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   rc = compare_value(left_value, right_value, bool_value);
   if (rc == RC::SUCCESS) {
     value.set_boolean(bool_value);
+  } else if (rc == RC::SCHEMA_FIELD_TYPE_MISMATCH) {
+    // 类型转换失败（如无效日期），传播错误
+    LOG_WARN("type conversion failed in comparison. rc=%s", strrc(rc));
+    return rc;
   } else {
-    // 比较失败时，也按照null规则处理
+    // 其他失败（如除零），按照null规则处理
     value.set_boolean(false);
     return RC::SUCCESS;
   }

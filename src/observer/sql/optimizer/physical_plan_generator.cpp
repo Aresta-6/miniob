@@ -194,11 +194,11 @@ RC PhysicalPlanGenerator::create_plan(TableGetLogicalOperator &table_get_oper, u
       if (rc != RC::SUCCESS) {
         LOG_WARN("failed to cast value to field type. value_type=%d, field_type=%d, rc=%s", 
                  value.attr_type(), field_meta->type(), strrc(rc));
-        // 如果转换失败，仍使用原值（可能会导致查询结果不正确，但不会崩溃）
-      } else {
-        LOG_INFO("Index scan: value converted successfully");
-        final_value = &converted_value;
+        // 类型转换失败（如无效日期），返回错误而不是继续查询
+        return rc;
       }
+      LOG_INFO("Index scan: value converted successfully");
+      final_value = &converted_value;
     } else {
       LOG_INFO("Index scan: value type matches field type (%d)", value.attr_type());
     }
