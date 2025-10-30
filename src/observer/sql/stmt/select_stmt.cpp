@@ -147,6 +147,7 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     join_filter_stmts.push_back(nullptr);
   }
   
+  RC rc = RC::SUCCESS;
   for (size_t i = 0; i < select_sql.joins.size(); i++) {
     FilterStmt *join_filter = nullptr;
     rc = FilterStmt::create(db,

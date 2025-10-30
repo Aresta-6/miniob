@@ -191,7 +191,6 @@ ComparisonExpr *create_comparison_expression(CompOp comp,
 %type <condition_list>      where
 %type <condition_list>      condition_list
 %type <condition_list>      on_conditions
-%type <expression_list>     where_expression_list
 %type <expression_list>     condition_expression_list
 %type <cstring>             storage_format
 %type <key_list>            primary_key
@@ -233,6 +232,8 @@ ComparisonExpr *create_comparison_expression(CompOp comp,
 %left '+' '-'
 %left '*' '/'
 %right UMINUS
+%nonassoc EQ LT GT LE GE NE LIKE NOT_LIKE
+%left AND
 %%
 
 commands: command_wrapper opt_semicolon  //commands or sqls. parser starts here.
@@ -736,7 +737,7 @@ condition_expression_list:
     {
       $$ = nullptr;
     }
-    | expression comp_op expression {
+    | expression comp_op expression %prec EQ {
       $$ = new vector<unique_ptr<Expression>>;
       $$->emplace_back(create_comparison_expression($2, $1, $3, sql_string, &@$));
     }
