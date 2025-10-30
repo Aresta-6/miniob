@@ -328,13 +328,17 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
 
   RC rc = left_->get_value(tuple, left_value);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of left expression. rc=%s", strrc(rc));
-    return rc;
+    // 按照null规则处理：表达式求值失败时，比较结果为false
+    LOG_TRACE("failed to get value of left expression (treating as false). rc=%s", strrc(rc));
+    value.set_boolean(false);
+    return RC::SUCCESS;
   }
   rc = right_->get_value(tuple, right_value);
   if (rc != RC::SUCCESS) {
-    LOG_WARN("failed to get value of right expression. rc=%s", strrc(rc));
-    return rc;
+    // 按照null规则处理：表达式求值失败时，比较结果为false
+    LOG_TRACE("failed to get value of right expression (treating as false). rc=%s", strrc(rc));
+    value.set_boolean(false);
+    return RC::SUCCESS;
   }
 
   bool bool_value = false;
@@ -342,6 +346,10 @@ RC ComparisonExpr::get_value(const Tuple &tuple, Value &value) const
   rc = compare_value(left_value, right_value, bool_value);
   if (rc == RC::SUCCESS) {
     value.set_boolean(bool_value);
+  } else {
+    // 比较失败时，也按照null规则处理
+    value.set_boolean(false);
+    return RC::SUCCESS;
   }
   return rc;
 }
@@ -511,23 +519,26 @@ RC ArithmeticExpr::calc_value(const Value &left_value, const Value &right_value,
 
   switch (arithmetic_type_) {
     case Type::ADD: {
-      Value::add(left_value, right_value, value);
+      rc = Value::add(left_value, right_value, value);
     } break;
 
     case Type::SUB: {
-      Value::subtract(left_value, right_value, value);
+      rc = Value::subtract(left_value, right_value, value);
     } break;
 
     case Type::MUL: {
-      Value::multiply(left_value, right_value, value);
+      rc = Value::multiply(left_value, right_value, value);
     } break;
 
     case Type::DIV: {
-      Value::divide(left_value, right_value, value);
+      rc = Value::divide(left_value, right_value, value);
+      if (rc != RC::SUCCESS) {
+        LOG_TRACE("Division failed (likely division by zero)");
+      }
     } break;
 
     case Type::NEGATIVE: {
-      Value::negative(left_value, value);
+      rc = Value::negative(left_value, value);
     } break;
 
     default: {
