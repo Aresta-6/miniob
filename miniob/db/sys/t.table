@@ -4,17 +4,9 @@
 		{
 			"FIELD_id" : 0,
 			"len" : 4,
-			"name" : "id",
+			"name" : "a",
 			"offset" : 0,
 			"type" : "ints",
-			"visible" : true
-		},
-		{
-			"FIELD_id" : 1,
-			"len" : 50,
-			"name" : "name",
-			"offset" : 4,
-			"type" : "chars",
 			"visible" : true
 		}
 	],
@@ -22,6 +14,6 @@
 	"primary_keys" : null,
 	"storage_engine" : 0,
 	"storage_format" : 1,
-	"table_id" : 10,
+	"table_id" : 33,
 	"table_name" : "t"
 }

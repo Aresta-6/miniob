@@ -513,7 +513,7 @@ update_stmt:      /*  update 语句的语法解析树*/
     }
     ;
 select_stmt:        /*  select 语句的语法解析树*/
-    SELECT expression_list FROM relation join_list where group_by
+    SELECT expression_list FROM relation join_list group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -533,16 +533,11 @@ select_stmt:        /*  select 语句的语法解析树*/
       }
 
       if ($6 != nullptr) {
-        $$->selection.conditions.swap(*$6);
+        $$->selection.group_by.swap(*$6);
         delete $6;
       }
-
-      if ($7 != nullptr) {
-        $$->selection.group_by.swap(*$7);
-        delete $7;
-      }
     }
-    | SELECT expression_list FROM rel_list where group_by
+    | SELECT expression_list FROM rel_list group_by
     {
       $$ = new ParsedSqlNode(SCF_SELECT);
       if ($2 != nullptr) {
@@ -556,13 +551,8 @@ select_stmt:        /*  select 语句的语法解析树*/
       }
 
       if ($5 != nullptr) {
-        $$->selection.conditions.swap(*$5);
+        $$->selection.group_by.swap(*$5);
         delete $5;
-      }
-
-      if ($6 != nullptr) {
-        $$->selection.group_by.swap(*$6);
-        delete $6;
       }
     }
     | SELECT expression_list FROM relation join_list WHERE condition_expression_list group_by
@@ -747,22 +737,18 @@ condition_expression_list:
       } else {
         $$ = new vector<unique_ptr<Expression>>;
       }
-      $$->emplace_back(create_comparison_expression($2, $1, $3, sql_string, &@$));
+      $$->insert($$->begin(), unique_ptr<Expression>(create_comparison_expression($2, $1, $3, sql_string, &@$)));
     }
     ;
 condition_list:
-    /* empty */
-    {
-      $$ = nullptr;
-    }
-    | condition {
+    condition {
       $$ = new vector<ConditionSqlNode>;
       $$->emplace_back(*$1);
       delete $1;
     }
     | condition AND condition_list {
       $$ = $3;
-      $$->emplace_back(*$1);
+      $$->insert($$->begin(), *$1);
       delete $1;
     }
     ;
