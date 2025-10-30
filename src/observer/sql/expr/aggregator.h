@@ -46,3 +46,36 @@ public:
 private:
   int count_;
 };
+
+class MaxAggregator : public Aggregator
+{
+public:
+  MaxAggregator() : first_(true) {}
+  RC accumulate(const Value &value) override;
+  RC evaluate(Value &result) override;
+  
+private:
+  bool first_;
+};
+
+class MinAggregator : public Aggregator
+{
+public:
+  MinAggregator() : first_(true) {}
+  RC accumulate(const Value &value) override;
+  RC evaluate(Value &result) override;
+  
+private:
+  bool first_;
+};
+
+class AvgAggregator : public Aggregator
+{
+public:
+  AvgAggregator() : count_(0) {}
+  RC accumulate(const Value &value) override;
+  RC evaluate(Value &result) override;
+  
+private:
+  int count_;
+};
