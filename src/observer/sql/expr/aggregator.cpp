@@ -121,12 +121,23 @@ RC AvgAggregator::evaluate(Value& result)
   }
   
   // 计算平均值
+  // AVG 应该始终返回浮点数，即使输入是整数
+  Value sum_float;
   Value count_value;
-  count_value.set_int(count_);
   
-  // AVG的结果类型与累加值类型一致
-  // 设置result的类型以便divide可以正常工作
-  result.set_type(value_.attr_type());
-  RC rc = Value::divide(value_, count_value, result);
+  // 将累加值转换为浮点数
+  if (value_.attr_type() == AttrType::INTS) {
+    sum_float.set_float(static_cast<float>(value_.get_int()));
+  } else if (value_.attr_type() == AttrType::FLOATS) {
+    sum_float = value_;
+  } else {
+    sum_float = value_;
+  }
+  
+  count_value.set_float(static_cast<float>(count_));
+  
+  // 结果设置为浮点类型
+  result.set_type(AttrType::FLOATS);
+  RC rc = Value::divide(sum_float, count_value, result);
   return rc;
 }
